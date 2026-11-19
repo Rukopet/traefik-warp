@@ -1,6 +1,6 @@
 package traefik_warp
 
-import "github.com/l4rm4nd/traefik-warp/providers"
+import "github.com/Rukopet/traefik-warp/providers"
 
 // Config the plugin configuration.
 type Config struct {

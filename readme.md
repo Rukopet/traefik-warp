@@ -1,4 +1,19 @@
-# TraefikWarp – Real Client IP
+# TraefikWarp – Real Client IP (cached CDN lists)
+
+> [!NOTE]
+> This is a fork of [l4rm4nd/traefik-warp](https://github.com/l4rm4nd/traefik-warp) **v1.1.5** (MIT).
+> Request handling is unchanged. The only change is how the Cloudflare and CloudFront IP lists are fetched:
+>
+> - Upstream downloads both lists inside every middleware instance's constructor. Traefik builds one
+>   instance per router and entry point on every configuration change, so with a few dozen routers each
+>   change takes over a minute to apply (~2.5 s of downloads per instance).
+> - Here the lists are downloaded once per Traefik process and shared by all instances
+>   ([`providers/cache.go`](providers/cache.go)): kept for 1 hour, the last good list is kept if a refresh
+>   fails, a failed first download is retried after 30 s, each download is bounded by a 10 s timeout and
+>   a non-200 answer counts as a failure.
+>
+> Use it with module name `github.com/Rukopet/traefik-warp`; the configuration is the same as upstream's.
+> Everything below is upstream's README.
 
 A Traefik middleware plugin to automatically obtain the real visitor's IP address if Traefik is run behind a Content Delivery Network (CDN) like Cloudflare or CloudFront. Fully automated by fetching and regularly updating the official CDN CIDR IP addresses from official HTTP endpoints.
 

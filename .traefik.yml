@@ -1,7 +1,7 @@
-displayName: Traefik Warp – Real Client IP
+displayName: Traefik Warp (cached CDN lists) – Real Client IP
 type: middleware
-import: github.com/l4rm4nd/traefik-warp
-summary: Resolves the real visitor IP behind Cloudflare/CloudFront. In auto mode it binds trusted headers to the socket’s edge IP and sets X-Forwarded-For / X-Real-IP / proto safely.
+import: github.com/Rukopet/traefik-warp
+summary: Fork of l4rm4nd/traefik-warp v1.1.5 that downloads the Cloudflare/CloudFront IP lists once per Traefik process instead of once per middleware instance. Resolves the real visitor IP behind Cloudflare/CloudFront. In auto mode it binds trusted headers to the socket’s edge IP and sets X-Forwarded-For / X-Real-IP / proto safely.
 iconPath: .assets/icon.png
 # Optional but nice if you have a banner image
 # bannerPath: .assets/banner.png

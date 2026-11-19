@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/l4rm4nd/traefik-warp/providers"
+	"github.com/Rukopet/traefik-warp/providers"
 )
 
 type captureNext struct{}

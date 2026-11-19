@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const warpModule = "github.com/l4rm4nd/traefik-warp"
+const warpModule = "github.com/Rukopet/traefik-warp"
 const warpPlugin = "plugin-traefikwarp"
 
 // global debug flag (0 = off, 1 = on)

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/l4rm4nd/traefik-warp/providers"
-	"github.com/l4rm4nd/traefik-warp/providers/cloudflare"
-	"github.com/l4rm4nd/traefik-warp/providers/cloudfront"
+	"github.com/Rukopet/traefik-warp/providers"
+	"github.com/Rukopet/traefik-warp/providers/cloudflare"
+	"github.com/Rukopet/traefik-warp/providers/cloudfront"
 )
 
 // cleanInboundForwardingHeaders removes spoofable forwarding headers.
