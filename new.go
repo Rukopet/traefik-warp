@@ -75,35 +75,37 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 // refreshLoop periodically refreshes the allowlists until ctx is done.
 // While a provider list is missing it retries every d.retryInterval.
 // With interval 0 it stops after the first successful refresh.
-// It uses a Ticker: under Yaegi a Timer reset inside select often never fires again when
-// many instances run this loop at once.
+// It sleeps instead of selecting on a timer: under Yaegi, timers in many concurrent selects
+// sometimes stop firing, which left instances without a list after an outage.
 func (d *Disolver) refreshLoop(ctx context.Context, interval, first time.Duration) {
-	period := first
-	tk := time.NewTicker(period)
-	defer tk.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tk.C:
-			next := interval
-			if err := d.refreshOnce(); err != nil {
-				logWarn("warp: periodic CIDR refresh failed", "error", err.Error())
-				next = d.retryInterval
-			} else {
-				cf, cfn := d.counts()
-				logInfo("warp: refreshed CIDRs", "cf", fmt.Sprintf("%d", cf), "cfn", fmt.Sprintf("%d", cfn))
-				if interval <= 0 {
-					return
-				}
-			}
-			if next != period {
-				period = next
-				tk.Reset(period)
-			}
+	wait := first
+	for sleepCtx(ctx, wait, d.retryInterval) {
+		if err := d.refreshOnce(); err != nil {
+			logWarn("warp: periodic CIDR refresh failed", "error", err.Error())
+			wait = d.retryInterval
+			continue
 		}
+		cf, cfn := d.counts()
+		logInfo("warp: refreshed CIDRs", "cf", fmt.Sprintf("%d", cf), "cfn", fmt.Sprintf("%d", cfn))
+		if interval <= 0 {
+			return
+		}
+		wait = interval
 	}
+}
+
+// sleepCtx sleeps for total in steps of at most step and reports whether ctx is still alive,
+// so a canceled instance's goroutine ends within one step.
+func sleepCtx(ctx context.Context, total, step time.Duration) bool {
+	for total > 0 && ctx.Err() == nil {
+		s := step
+		if s <= 0 || total < s {
+			s = total
+		}
+		time.Sleep(s)
+		total -= s
+	}
+	return ctx.Err() == nil
 }
 
 // refreshOnce fetches defaults + merges user-supplied CIDRs, then swaps atomically.
