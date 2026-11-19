@@ -2,67 +2,104 @@ package providers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 )
 
-// FetchTimeout bounds one download of a provider's IP list.
-const FetchTimeout = 10 * time.Second
+const (
+	FetchTimeout = 10 * time.Second
+	ListTTL      = time.Hour
+)
 
-// HTTPClient downloads the provider lists. Upstream used http.Get with no timeout.
+// RetryInterval is how soon a failed download is retried. A var so tests can shorten it.
+var RetryInterval = 30 * time.Second
+
 var HTTPClient = &http.Client{Timeout: FetchTimeout}
 
-// ErrNoList means no list was ever fetched and the last attempt failed.
 var ErrNoList = errors.New("provider IP list not fetched yet")
 
-// ListCache keeps one provider IP list for the whole Traefik process.
-//
-// Traefik builds a middleware instance for every router and entry point on every
-// configuration change, and upstream fetched the lists inside each instance's
-// constructor: with 19 routes on two entry points a change took ~80 s to apply.
-// Here the first instance fetches, the others reuse the result until it is TTL old.
-// A failed refresh keeps serving the last good list; without one the caller falls
-// back as upstream did, and the fetch is not retried before RetryAfter.
+// ListCache keeps one provider IP list for the whole Traefik process, shared by every
+// middleware instance. Only the very first download blocks the caller. Later refreshes
+// run in the background while callers get the current list, and a failed refresh keeps it.
 type ListCache struct {
-	Fetch      func() ([]string, error)
-	TTL        time.Duration
-	RetryAfter time.Duration
+	Fetch func() ([]string, error)
+	TTL   time.Duration
 
-	mu        sync.Mutex
-	list      []string
-	fetchedAt time.Time
-	failedAt  time.Time
+	mu         sync.Mutex
+	list       []string
+	fetchedAt  time.Time
+	failedAt   time.Time
+	lastErr    error
+	refreshing bool
 }
 
-// Get returns a copy of the cached list, fetching it when it is missing or stale.
 func (c *ListCache) Get(now time.Time) ([]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if len(c.list) > 0 && now.Sub(c.fetchedAt) < c.TTL {
+	if len(c.list) > 0 {
+		if now.Sub(c.fetchedAt) >= c.TTL && !c.refreshing && !c.recentlyFailed(now) {
+			c.refreshing = true
+			go c.refresh(now)
+		}
 		return c.copyList(), nil
 	}
-	if !c.failedAt.IsZero() && now.Sub(c.failedAt) < c.RetryAfter {
-		return c.stale()
-	}
 
-	list, err := c.Fetch()
-	if err != nil || len(list) == 0 {
-		c.failedAt = now
-		return c.stale()
+	if c.recentlyFailed(now) {
+		return nil, c.noListErr()
 	}
-	c.list = list
-	c.fetchedAt = now
-	c.failedAt = time.Time{}
+	// Held during the first download so the other instances wait for it instead of fetching too.
+	list, err := c.fetch()
+	if err != nil {
+		c.failedAt = now
+		c.lastErr = err
+		return nil, c.noListErr()
+	}
+	c.store(list, now)
 	return c.copyList(), nil
 }
 
-func (c *ListCache) stale() ([]string, error) {
-	if len(c.list) == 0 {
-		return nil, ErrNoList
+func (c *ListCache) refresh(now time.Time) {
+	list, err := c.fetch()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refreshing = false
+	if err != nil {
+		c.failedAt = now
+		c.lastErr = err
+		return
 	}
-	return c.copyList(), nil
+	c.store(list, now)
+}
+
+func (c *ListCache) fetch() ([]string, error) {
+	list, err := c.Fetch()
+	if err == nil && len(list) == 0 {
+		err = errors.New("empty list")
+	}
+	return list, err
+}
+
+func (c *ListCache) store(list []string, now time.Time) {
+	c.list = list
+	c.fetchedAt = now
+	// Separate assignments: Yaegi panics on `a, b = x, nil` with an interface field.
+	c.failedAt = time.Time{}
+	c.lastErr = nil
+}
+
+func (c *ListCache) recentlyFailed(now time.Time) bool {
+	return !c.failedAt.IsZero() && now.Sub(c.failedAt) < RetryInterval
+}
+
+func (c *ListCache) noListErr() error {
+	if c.lastErr == nil {
+		return ErrNoList
+	}
+	return fmt.Errorf("%w: %v", ErrNoList, c.lastErr)
 }
 
 func (c *ListCache) copyList() []string {

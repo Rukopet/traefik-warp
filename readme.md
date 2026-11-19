@@ -2,15 +2,18 @@
 
 > [!NOTE]
 > This is a fork of [l4rm4nd/traefik-warp](https://github.com/l4rm4nd/traefik-warp) **v1.1.5** (MIT).
-> Request handling is unchanged. The only change is how the Cloudflare and CloudFront IP lists are fetched:
+> Request handling is unchanged. What differs is how the Cloudflare and CloudFront IP lists are fetched:
 >
 > - Upstream downloads both lists inside every middleware instance's constructor. Traefik builds one
 >   instance per router and entry point on every configuration change, so with a few dozen routers each
 >   change takes over a minute to apply (~2.5 s of downloads per instance).
 > - Here the lists are downloaded once per Traefik process and shared by all instances
->   ([`providers/cache.go`](providers/cache.go)): kept for 1 hour, the last good list is kept if a refresh
->   fails, a failed first download is retried after 30 s, each download is bounded by a 10 s timeout and
->   a non-200 answer counts as a failure.
+>   ([`providers/cache.go`](providers/cache.go)). After an hour they are refreshed in the background while
+>   the current list keeps being used, and a failed refresh keeps it.
+> - A download counts only if every URL answers 200 within 10 s and every line is a CIDR, so a partial or
+>   garbage answer never replaces a good list.
+> - If no list could be downloaded yet, nothing is trusted (upstream trusted the private ranges
+>   10/8, 172.16/12, 192.168/16 then), and each instance retries every 30 s until the list arrives.
 >
 > Use it with module name `github.com/Rukopet/traefik-warp`; the configuration is the same as upstream's.
 > Everything below is upstream's README.
